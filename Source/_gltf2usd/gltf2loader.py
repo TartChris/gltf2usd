@@ -6,6 +6,14 @@ import os
 import re
 import struct
 
+import requests
+import logging
+
+logger = logging.getLogger(__name__)
+
+import numpy as np
+from io import BytesIO
+
 import gltf2usdUtils
 
 from gltf2 import Skin, Node, Animation, Scene, Mesh, Material, GLTFImage, Asset
@@ -85,6 +93,21 @@ def accessor_component_type_bytesize(x):
     }[x]
 
 
+def load_uri(s, folder=None):
+    if s.startswith('data:'):
+        return base64.b64decode(s[s.index(',') + 1:])
+
+    if s.startswith('http'):
+        r = requests.get(s)
+        if r.status_code >= 400:
+            logger.warning('Unable to fetch http uri')
+            return
+        return r.content
+
+    if folder:
+        s = os.path.join(folder, s)
+    with open(s, 'rb') as f:
+        return f.read()
 
 
 class GLTF2Loader(object):
@@ -100,19 +123,58 @@ class GLTF2Loader(object):
         if not os.path.isfile(gltf_file):
             raise Exception("file {} does not exist".format(gltf_file))
 
-        if not gltf_file.endswith('.gltf'):
-            raise Exception('Can only accept .gltf files')
+        if not gltf_file.endswith('.gltf') and not gltf_file.endswith('.glb'):
+            raise Exception('Can only accept .gltf/glb files')
 
         self._accessor_data_map = {}
         self.root_dir = os.path.dirname(gltf_file)
         self._optimize_textures = optimize_textures
         self._generate_texture_transform_texture = generate_texture_transform_texture
-        try:
-            with codecs.open(gltf_file, encoding='utf-8', errors='strict') as f:
-                self.json_data = json.load(f)
-        except UnicodeDecodeError:
-            with open(gltf_file) as f:
-                self.json_data = json.load(f)
+
+        if gltf_file.endswith('.glb'):
+            MAGIC = 0x46546C67
+            JSON_CHUNK = 0x4E4F534A
+            BINARY_CHUNK = 0x004E4942
+
+            with open(gltf_file, 'rb') as f:
+                file_buffer = BytesIO(f.read())
+
+            file_buffer.seek(0)
+            magic, glb_version, file_size = np.frombuffer(file_buffer.read(12), dtype='uint32')
+            if magic == MAGIC:
+                if glb_version != 2:
+                    raise NotImplementedError('Only glb version 2 is supported!')
+                total_bytes_read = 12
+                while True:
+                    header_bytes = file_buffer.read(8)
+                    if not header_bytes:
+                        if total_bytes_read != file_size:
+                            raise ValueError('Expected ' + file_size + ' bytes' +
+                                             ' but only read ' + total_bytes_read)
+                        break
+                    total_bytes_read += 8
+                    chunk_size, chunk_type = np.frombuffer(header_bytes, dtype='uint32')
+                    chunk = file_buffer.read(int(chunk_size))
+                    total_bytes_read += chunk_size
+                    if chunk_type == JSON_CHUNK:
+                        self.json_data = json.loads(chunk.decode('utf-8'))
+                    elif chunk_type == BINARY_CHUNK:
+                        buffer = self.json_data['buffers'][0]
+                        if buffer.get('uri'):
+                            buffer['data'] = load_uri(buffer['uri'], folder=self.root_dir)
+                        else:
+                            buffer['data'] = bytearray(chunk)[:buffer['byteLength']]
+                    else:
+                        raise TypeError('Invalid chunk type: ' + chunk_type)
+            self.binary = True
+        else:
+            try:
+                with codecs.open(gltf_file, encoding='utf-8', errors='strict') as f:
+                    self.json_data = json.load(f)
+            except UnicodeDecodeError:
+                with open(gltf_file) as f:
+                    self.json_data = json.load(f)
+            self.binary = False
 
         self._initialize()
 
@@ -139,8 +201,8 @@ class GLTF2Loader(object):
         self._images = []
         if 'images' in self.json_data:
             for i, image_entry in enumerate(self.json_data['images']):
-                self._images.append(GLTFImage.GLTFImage(image_entry, i, self, self._optimize_textures, self._generate_texture_transform_texture))
-
+                self._images.append(GLTFImage.GLTFImage(image_entry, i, self, self._optimize_textures,
+                                                        self._generate_texture_transform_texture))
 
     def _initialize_nodes(self):
         self.nodes = []
@@ -255,10 +317,16 @@ class GLTF2Loader(object):
         bufferview = self.json_data['bufferViews'][accessor['bufferView']]
         buffer = self.json_data['buffers'][bufferview['buffer']]
         accessor_type = AccessorType(accessor['type'])
-        uri = buffer['uri']
+        if not self.binary:
+            uri = buffer['uri']
         buffer_data = ''
 
-        if re.match(r'^data:.*?;base64,', uri):
+        if self.binary:
+            buffer_data = buffer['data']
+            if 'byteOffset' in bufferview:
+                buffer_data = buffer_data[bufferview['byteOffset']:]
+
+        elif re.match(r'^data:.*?;base64,', uri):
             uri_data = uri.split(',')[1]
             buffer_data = base64.b64decode(uri_data)
             if 'byteOffset' in bufferview:
@@ -277,12 +345,13 @@ class GLTF2Loader(object):
         accessor_type_size = accessor_type_count(accessor['type'])
         accessor_component_type_size = accessor_component_type_bytesize(accessor_component_type)
 
-        bytestride = int(bufferview['byteStride']) if ('byteStride' in bufferview) else (accessor_type_size * accessor_component_type_size)
+        bytestride = int(bufferview['byteStride']) if ('byteStride' in bufferview) else (
+                    accessor_type_size * accessor_component_type_size)
         offset = int(accessor['byteOffset']) if 'byteOffset' in accessor else 0
 
         data_type = ''
         data_type_size = 4
-        normalize_divisor = 1.0 #used if the value needs to be normalized
+        normalize_divisor = 1.0  # used if the value needs to be normalized
         if accessor_component_type == AccessorComponentType.FLOAT:
             data_type = 'f'
             data_type_size = 4
@@ -292,7 +361,7 @@ class GLTF2Loader(object):
         elif accessor_component_type == AccessorComponentType.UNSIGNED_SHORT:
             data_type = 'H'
             data_type_size = 2
-            normalize_divisor = 65535.0 if 'normalized' in accessor and accessor['normalized'] == True else 1.0 
+            normalize_divisor = 65535.0 if 'normalized' in accessor and accessor['normalized'] == True else 1.0
         elif accessor_component_type == AccessorComponentType.UNSIGNED_BYTE:
             data_type = 'B'
             data_type_size = 1
@@ -305,7 +374,7 @@ class GLTF2Loader(object):
             for j in range(0, accessor_type_size):
                 x = offset + j * accessor_component_type_size
                 window = buffer_data[x:x + data_type_size]
-                entries.append((struct.unpack(data_type, window)[0])/normalize_divisor)
+                entries.append((struct.unpack(data_type, window)[0]) / normalize_divisor)
 
             if len(entries) > 1:
                 data_arr.append(tuple(entries))

@@ -26,9 +26,12 @@ class GLTFImage(object):
             if 'byteOffset' in bufferview:
                 buffer = gltf_loader.json_data['buffers'][bufferview['buffer']]
 
-                img_base64 = buffer['uri'].split(',')[1]
                 buff = BytesIO()
-                buff.write(base64.b64decode(img_base64))
+                if not gltf_loader.binary:
+                    img_base64 = buffer['uri'].split(',')[1]
+                    buff.write(base64.b64decode(img_base64))
+                else:
+                    buff.write(buffer['data'])
                 buff.seek(bufferview['byteOffset'])
                 img = Image.open(BytesIO(buff.read(bufferview['byteLength'])))
                 # NOTE: image might not have a name
