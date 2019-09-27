@@ -3,7 +3,7 @@ from enum import Enum
 from pxr import Gf, Sdf, UsdGeom, UsdShade
 
 from gltf2 import Material, GLTFImage
-from _gltf2usd.gltf2usdUtils import GLTF2USDUtils
+from gltf2usdUtils import GLTF2USDUtils
 from gltf2.Material import AlphaMode
 from gltf2loader import TextureWrap
 

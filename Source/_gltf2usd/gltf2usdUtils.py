@@ -4,6 +4,14 @@ from pxr import Gf, UsdSkel
 
 class GLTF2USDUtils(object):
     @staticmethod
+    def clean_path(s):
+        s = re.sub(r'[^\w\s]', '', s)
+        s = re.sub(r'\s+', '_', s)
+        if not s:
+            return str(uuid4())[:8]
+        return s
+
+    @staticmethod
     def convert_to_usd_friendly_node_name(name):
         """Format a glTF name to make it more USD friendly
 

@@ -99,7 +99,7 @@ class GLTF2USD(object):
             node_index {int} -- glTF node index
             xform_name {str} -- USD xform name
         """
-        xformPrim = UsdGeom.Xform.Define(self.stage, '{0}/{1}'.format(usd_xform.GetPath(), GLTF2USDUtils.convert_to_usd_friendly_node_name(node.name)))
+        xformPrim = UsdGeom.Xform.Define(self.stage, '{0}/{1}'.format(usd_xform.GetPath(), GLTF2USDUtils.clean_path(node.name)))
 
         if self._node_has_animations(node):
             self._convert_animation_to_usd(node, xformPrim)
@@ -443,6 +443,8 @@ class GLTF2USD(object):
 
                     # NOTE: image might not have a name
                     image_name = image['name'] if 'name' in image else 'image{}.{}'.format(i, img.format.lower())
+                    if "." not in image_name:
+                        image_name = '{}.{}'.format(image_name, img.format.lower())
                     image_path = os.path.join(self.gltf_loader.root_dir, image_name)
                     img.save(image_path)
                 elif 'bufferView' in image or image['uri'].startswith('data:image'):
@@ -830,7 +832,7 @@ def check_usd_compliance(rootLayer, arkit=False):
     return len(errors) == 0 and len(failedChecks) == 0
 
 
-def convert_to_usd(gltf_file, usd_file, fps, scale, arkit=False, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
+def convert_to_usd(gltf_file, usd_file, fps=24.0, scale=100, arkit=False, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
     """Converts a glTF file to USD
 
     Arguments:
@@ -883,7 +885,7 @@ def convert_to_usd(gltf_file, usd_file, fps, scale, arkit=False, verbose=False, 
                 resolved_asset = r.Resolve(ntpath.basename(usdc_file))
                 context = r.CreateDefaultContextForAsset(resolved_asset)
 
-                success = check_usd_compliance(resolved_asset, arkit=args.arkit)
+                success = check_usd_compliance(resolved_asset, arkit=arkit)
                 with Ar.ResolverContextBinder(context):
                     if arkit and not success:
                         usd.logger.warning('USD is not ARKit compliant')

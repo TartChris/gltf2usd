@@ -1,8 +1,13 @@
 from bisect import bisect_left
 
-from _gltf2usd.gltf2usdUtils import GLTF2USDUtils
-
 from pxr import Gf
+
+def slerp(vec0, vec1, factor):
+    quat0 = Gf.Quatf(vec0[3], vec0[0], vec0[1], vec0[2])
+    quat1 = Gf.Quatf(vec1[3], vec1[0], vec1[1], vec1[2])
+    result = Gf.Quatf(Gf.Slerp(factor, quat0, quat1))
+
+    return result
 
 class AnimationSampler(object):
     def __init__(self, sampler_entry, animation):
@@ -99,7 +104,7 @@ class AnimationSampler(object):
 
         elif len(value0) == 4:
             #quaternion interpolation
-            result = GLTF2USDUtils.slerp(value0, value1, factor)
+            result = slerp(value0, value1, factor)
             return result
         else:
             raise Exception('unsupported value type')

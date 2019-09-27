@@ -36,6 +36,8 @@ class GLTFImage(object):
                 img = Image.open(BytesIO(buff.read(bufferview['byteLength'])))
                 # NOTE: image might not have a name
                 self._name = image_entry['name'] if 'name' in image_entry else 'image_{}.{}'.format(image_index, img.format.lower())
+                if "." not in self._name:
+                    self._name = '{}.{}'.format(self._name, img.format.lower())
                 self._image_path = os.path.join(gltf_loader.root_dir, self._name)
                 img.save(self._image_path, optimize=self._optimize_textures)
         else:
