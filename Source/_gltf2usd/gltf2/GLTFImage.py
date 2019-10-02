@@ -8,6 +8,8 @@ from enum import Enum
 from PIL import Image
 import numpy as np
 
+from Material import TextureWrap
+
 class ImageColorChannels(Enum):
     RGB = 'RGB'
     RGBA = 'RGBA'
@@ -23,23 +25,22 @@ class GLTFImage(object):
         if 'bufferView' in image_entry:
             #get image data from bufferview
             bufferview = gltf_loader.json_data['bufferViews'][image_entry['bufferView']]
-            if 'byteOffset' in bufferview:
-                buffer = gltf_loader.json_data['buffers'][bufferview['buffer']]
+            buffer = gltf_loader.json_data['buffers'][bufferview['buffer']]
 
-                buff = BytesIO()
-                if not gltf_loader.binary:
-                    img_base64 = buffer['uri'].split(',')[1]
-                    buff.write(base64.b64decode(img_base64))
-                else:
-                    buff.write(buffer['data'])
-                buff.seek(bufferview['byteOffset'])
-                img = Image.open(BytesIO(buff.read(bufferview['byteLength'])))
-                # NOTE: image might not have a name
-                self._name = image_entry['name'] if 'name' in image_entry else 'image_{}.{}'.format(image_index, img.format.lower())
-                if "." not in self._name:
-                    self._name = '{}.{}'.format(self._name, img.format.lower())
-                self._image_path = os.path.join(gltf_loader.root_dir, self._name)
-                img.save(self._image_path, optimize=self._optimize_textures)
+            buff = BytesIO()
+            if not gltf_loader.binary:
+                img_base64 = buffer['uri'].split(',')[1]
+                buff.write(base64.b64decode(img_base64))
+            else:
+                buff.write(buffer['data'])
+            buff.seek(bufferview.get('byteOffset', 0))
+            img = Image.open(BytesIO(buff.read(bufferview['byteLength'])))
+            # NOTE: image might not have a name
+            self._name = image_entry['name'] if 'name' in image_entry else 'image_{}.{}'.format(image_index, img.format.lower())
+            if "." not in self._name:
+                self._name = '{}.{}'.format(self._name, img.format.lower())
+            self._image_path = os.path.join(gltf_loader.root_dir, self._name)
+            img.save(self._image_path, optimize=self._optimize_textures)
         else:
             if image_entry['uri'].startswith('data:image'):
                 uri_data = image_entry['uri'].split(',')[1]
@@ -54,6 +55,8 @@ class GLTFImage(object):
                 self._name = ntpath.basename(self._uri)
                 self._image_path = os.path.join(gltf_loader.root_dir, self._uri)
 
+        print "self._name: " + self._name
+
         #decode unicode name to ascii
         if isinstance(self._name, unicode):
             self._name = self._name.encode('utf-8')
@@ -63,7 +66,8 @@ class GLTFImage(object):
         return self._image_path
 
 
-    def write_to_directory(self, output_dir, channels, texture_prefix, offset = [0,0], scale = [1,1], rotation = 0, scale_factor=None):
+    def write_to_directory(self, output_dir, channels, texture_prefix, offset = [0,0], scale = [1,1], rotation = 0,
+                           scale_factor=None, wrap_s=TextureWrap.REPEAT, wrap_t=TextureWrap.REPEAT):
         file_name = '{0}_{1}'.format(texture_prefix, ntpath.basename(self._name)) if texture_prefix else ntpath.basename(self._name)
         destination = os.path.join(output_dir, file_name)
         original_img = Image.open(self._image_path)
@@ -117,7 +121,7 @@ class GLTFImage(object):
                 file_name = texture_transform_prefix_name + file_name
                 destination = os.path.join(output_dir, file_name)
                 print('Generating texture transformed image "{}" ...'.format(file_name))
-                img = self._transform_image(img, translate=offset, scale=scale, rotation=rotation)
+                img = self._transform_image(img, translate=offset, scale=scale, rotation=rotation, wrap_s=wrap_s, wrap_t=wrap_t)
 
         img.save(destination, optimize=self._optimize_textures)
         
@@ -135,14 +139,14 @@ class GLTFImage(object):
             [numpy.matrix] -- texture transform matrix
         """
 
-        pivot_center = [0.0, -1.0]
-        rotation *= -1
+        pivot_center = [0.0, 0.0]
+        # rotation *= -1
         pre_translation_matrix = np.matrix([[1, 0, -pivot_center[0]], [0, 1, -pivot_center[1]], [0, 0, 1]])
         post_translation_matrix = np.matrix([[1, 0, pivot_center[0]], [0, 1, pivot_center[1]], [0, 0, 1]])
         translation_matrix = np.matrix(
             [
                 [1,0,offset[0]], 
-                [0,1,offset[1]], 
+                [0,1,offset[1]],
                 [0, 0, 1]
             ]
         )
@@ -164,7 +168,7 @@ class GLTFImage(object):
  
         return transform_matrix
 
-    def _transform_image(self, img, scale, rotation, translate):
+    def _transform_image(self, img, scale, rotation, translate, wrap_s=TextureWrap.REPEAT, wrap_t=TextureWrap.REPEAT):
         """Generates a new texture transformed image
         
         Arguments:
@@ -179,6 +183,13 @@ class GLTFImage(object):
 
         def _normalized_texcoord(x):
             return  x - int(x) if x >= 0 else 1 + (x - int(x))
+
+        def _clamped_texcoord(x):
+            if x > 1:
+                x = 1
+            elif x < 0:
+                x = 0
+            return x
             
         texture_transform_matrix = self._texture_transform_matrix(translate, scale, rotation)
         width = img.width
@@ -195,8 +206,18 @@ class GLTFImage(object):
             for row in range(new_img.size[1]):
                 res = np.matmul(texture_transform_matrix, np.array([col/float(img.width),row/float(img.height),1]))
 
-                c = min(int(round(_normalized_texcoord(res[0,0]) * height)), img.height - 1)
-                r = min(int(round(_normalized_texcoord(res[0,1]) * width)), img.width - 1)
+                if wrap_t == TextureWrap.CLAMP_TO_EDGE:
+                    texcoord = _clamped_texcoord(res[0, 0])
+                else:
+                    texcoord = _normalized_texcoord(res[0, 0])
+                c = min(int(round(texcoord * height)), img.height - 1)
+
+                if wrap_s == TextureWrap.CLAMP_TO_EDGE:
+                    texcoord = _clamped_texcoord(res[0, 1])
+                else:
+                    texcoord = _normalized_texcoord(res[0, 1])
+                r = min(int(round(texcoord * width)), img.width - 1)
+
                 pixel = source_image_pixels[r * width + c]
                 pixels[col, row] = pixel
 

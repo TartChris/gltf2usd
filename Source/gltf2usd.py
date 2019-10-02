@@ -38,7 +38,7 @@ class GLTF2USD(object):
         TextureWrap.REPEAT: 'repeat',
     }
 
-    def __init__(self, gltf_file, usd_file, fps, scale, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
+    def __init__(self, gltf_file, usd_file, usdz_profile, fps, scale, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
         """Initializes the glTF to USD converter
 
         Arguments:
@@ -53,7 +53,7 @@ class GLTF2USD(object):
         self.logger.addHandler(console_handler)
 
         self.fps = fps
-        self.gltf_loader = GLTF2Loader(gltf_file, optimize_textures, generate_texture_transform_texture)
+        self.gltf_loader = GLTF2Loader(gltf_file, usdz_profile, optimize_textures, generate_texture_transform_texture)
         self.verbose = verbose
         self.scale = scale
         self.use_euler_rotation = use_euler_rotation
@@ -71,6 +71,8 @@ class GLTF2USD(object):
         self.gltf_usdskel_nodemap = {}
         self._usd_mesh_skin_map = {}
         self._joint_hierarchy_name_map = {}
+
+        self.usdz_profile = usdz_profile
 
         self.convert()
 
@@ -438,7 +440,7 @@ class GLTF2USD(object):
                         buffer = self.gltf_loader.json_data['buffers'][buffer_view['buffer']]
                         buff = BytesIO()
                         buff.write(buffer['data'])
-                        buff.seek(buffer_view['byteOffset'])
+                        buff.seek(buffer_view.get('byteOffset', 0))
                         img = Image.open(BytesIO(buff.read(buffer_view['byteLength'])))
 
                     # NOTE: image might not have a name
@@ -455,7 +457,7 @@ class GLTF2USD(object):
                         img_base64 = buffer['uri'].split(',')[1]
                         buff = BytesIO()
                         buff.write(base64.b64decode(img_base64))
-                        buff.seek(buffer_view['byteOffset'])
+                        buff.seek(buffer_view.get('byteOffset', 0))
                         img = Image.open(BytesIO(buff.read(buffer_view['byteLength'])))
 
                     elif image['uri'].startswith('data:image'):
@@ -832,7 +834,7 @@ def check_usd_compliance(rootLayer, arkit=False):
     return len(errors) == 0 and len(failedChecks) == 0
 
 
-def convert_to_usd(gltf_file, usd_file, fps=24.0, scale=100, arkit=False, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
+def convert_to_usd(gltf_file, usd_file, usdz_profile=None, fps=24.0, scale=100, arkit=False, verbose=False, use_euler_rotation=False, optimize_textures=False, generate_texture_transform_texture=True, scale_texture=False):
     """Converts a glTF file to USD
 
     Arguments:
@@ -845,7 +847,7 @@ def convert_to_usd(gltf_file, usd_file, fps=24.0, scale=100, arkit=False, verbos
     temp_dir = tempfile.mkdtemp()
     temp_usd_file = os.path.join(temp_dir, ntpath.basename(usd_file))
     try:
-        usd = GLTF2USD(gltf_file=gltf_file, usd_file=temp_usd_file, fps=fps, scale=scale, verbose=verbose, use_euler_rotation=use_euler_rotation, optimize_textures=optimize_textures, generate_texture_transform_texture=generate_texture_transform_texture, scale_texture=scale_texture)
+        usd = GLTF2USD(gltf_file=gltf_file, usd_file=temp_usd_file, usdz_profile=usdz_profile, fps=fps, scale=scale, verbose=verbose, use_euler_rotation=use_euler_rotation, optimize_textures=optimize_textures, generate_texture_transform_texture=generate_texture_transform_texture, scale_texture=scale_texture)
         if usd.stage:
             asset = usd.stage.GetRootLayer()
             gltf_asset = usd.gltf_loader.get_asset()
@@ -936,4 +938,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.gltf_file:
-        convert_to_usd(os.path.expanduser(args.gltf_file), os.path.abspath(os.path.expanduser(args.usd_file)), args.fps, args.scale, args.arkit, args.verbose, args.use_euler_rotation, args.optimize_textures, args.generate_texture_transform_texture, args.scale_texture)
+        convert_to_usd(os.path.expanduser(args.gltf_file), os.path.abspath(os.path.expanduser(args.usd_file)), None, args.fps, args.scale, args.arkit, args.verbose, args.use_euler_rotation, args.optimize_textures, args.generate_texture_transform_texture, args.scale_texture)

@@ -20,7 +20,7 @@ class USDMaterial(object):
         self._scale_texture = scale_texture
 
     def convert_material_to_usd_preview_surface(self, gltf_material, output_directory, material_name):
-        usd_preview_surface = USDPreviewSurface(self._stage, gltf_material, self, output_directory, material_name, self._scale_texture)
+        usd_preview_surface = USDPreviewSurface(self._stage, gltf_material, self, output_directory, material_name, self._gltf2loader.usdz_profile, self._scale_texture)
         usd_preview_surface._name = material_name
 
     def get_usd_material(self):
@@ -32,11 +32,12 @@ class USDMaterial(object):
 class USDPreviewSurface(object):
     """Models a physically based surface for USD
     """
-    def __init__(self, stage, gltf_material, usd_material, output_directory, material_name, scale_texture=False):
+    def __init__(self, stage, gltf_material, usd_material, output_directory, material_name, usdz_profile, scale_texture=False):
         self._stage = stage
         self._scale_texture = scale_texture
         self._usd_material = usd_material
         self._output_directory = output_directory
+        self._usdz_profile = usdz_profile
         material_path = usd_material._usd_material.GetPath()
         material = UsdShade.Shader.Define(self._stage, material_path.AppendChild(material_name))
         material.CreateIdAttr('UsdPreviewSurface')

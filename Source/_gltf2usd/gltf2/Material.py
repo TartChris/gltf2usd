@@ -44,7 +44,7 @@ class Texture(object):
         return self._wrap_t
 
     def write_to_directory(self, output_directory, channels, texture_prefix="", scale_factor=None):
-        return self._image.write_to_directory(output_directory, channels, texture_prefix, self._tt_offset, self._tt_scale, self._tt_rotation, scale_factor)
+        return self._image.write_to_directory(output_directory, channels, texture_prefix, self._tt_offset, self._tt_scale, self._tt_rotation, scale_factor, self._wrap_s, self._wrap_t)
 
     def get_texcoord_index(self):
         return self._texcoord_index

@@ -18,6 +18,8 @@ import gltf2usdUtils
 
 from gltf2 import Skin, Node, Animation, Scene, Mesh, Material, GLTFImage, Asset
 
+import usdz_version_wrapper
+
 
 class AccessorType(Enum):
     SCALAR = 'SCALAR'
@@ -114,7 +116,7 @@ class GLTF2Loader(object):
     """A very simple glTF loader.  It is essentially a utility to load data from accessors
     """
 
-    def __init__(self, gltf_file, optimize_textures=False, generate_texture_transform_texture=True):
+    def __init__(self, gltf_file, usdz_profile, optimize_textures=False, generate_texture_transform_texture=True):
         """Initializes the glTF 2.0 loader
 
         Arguments:
@@ -126,6 +128,7 @@ class GLTF2Loader(object):
         if not gltf_file.endswith('.gltf') and not gltf_file.endswith('.glb'):
             raise Exception('Can only accept .gltf/glb files')
 
+        self.usdz_profile = usdz_profile  # type: USDZProfile
         self._accessor_data_map = {}
         self.root_dir = os.path.dirname(gltf_file)
         self._optimize_textures = optimize_textures
